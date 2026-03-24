@@ -17,10 +17,12 @@ python -m PyInstaller `
     --noconfirm `
     --clean `
     --onedir `
+    --windowed `
     --workpath $BuildDir `
     --distpath $DistDir `
     --name $Name `
-    process_videos.py
+    --add-data "process_videos.py;." `
+    gui.py
 
 $appDir = Join-Path $DistDir $Name
 $ffmpegExe = Get-ChildItem -Path (Join-Path $PWD "tools") -Recurse -Filter ffmpeg.exe | Select-Object -First 1

@@ -1,100 +1,97 @@
-# video-clip
+# 视频批量处理器 (Video Batch Processor)
 
-Batch TS -> MP4 processor with subtitle cropping, scaling, resumable task tracking, and quick validation mode.
+批量将视频文件转换为 MP4，自动裁剪底部字幕区域，支持 GPU 加速，多机并行部署。
 
-## Workflow
+## 功能特性
 
-1. Edit the top of `process_videos.py`:
-   - `input_dir`: your TS source folder
-   - `output_dir`: your MP4 output folder
-   - `workers`: start with about half your physical cores
+- 批量转换：自动扫描输入文件夹，转换为 MP4
+- 字幕裁剪：裁剪底部 100px 字幕区域，输出 1920x1080
+- 三档画质：高画质（CPU）/ 中画质（GPU）/ 低画质（GPU 极速）
+- 断点续传：SQLite 任务追踪，中断后重启自动跳过已完成文件
+- 多机部署：分片机制，多台机器并行处理互不干扰
+- 桌面 GUI：简单易用，无需命令行
 
-2. Run a quick validation pass:
+## 快速开始
 
-```bash
-python process_videos.py --input /data/ts --output /data/mp4_test --mode fast --limit 10
+### 安装依赖
+
+```powershell
+uv sync
 ```
 
-This uses NVENC and only processes a few files so you can inspect the output MP4s first.
+### 运行 GUI
 
-3. Open a few generated MP4 files and confirm:
-   - subtitles are fully removed
-   - the crop is correct
-   - there is no unexpected cut-off
-
-   The confirmed crop geometry is:
-
-```text
-crop=1920:980:0:0,scale=1920:1080
+```powershell
+uv run python gui.py
 ```
 
-4. Run the full production batch:
+### 界面说明
 
-```bash
-python process_videos.py --input /data/ts --output /data/mp4
-```
+| 选项 | 说明 |
+|------|------|
+| 输入文件夹 | 存放源视频文件的文件夹 |
+| 输出文件夹 | MP4 输出目标文件夹 |
+| 视频格式 | 要处理的格式，多个用逗号分隔，如 `.ts,.mp4,.mkv` |
+| 并行数量 | 同时处理的文件数，建议设为物理核心数的一半 |
+| 画质选择 | 见下方说明 |
+| 多机分片 | 多台机器并行时启用，每台设置不同编号 |
 
-5. Check progress at any time:
+### 画质选择
 
-```bash
-python process_videos.py --input /data/ts --output /data/mp4 --status
-```
+| 档位 | 编码器 | 速度 | 说明 |
+|------|--------|------|------|
+| 高画质 | libx264 CRF18 slow | 慢 | 最佳质量，依赖 CPU |
+| 中画质 | NVENC p7 VBR CQ18 | 快 | GPU 高质量，需要 NVIDIA 显卡 |
+| 低画质 | NVENC p4 CQ18 | 极快 | GPU 极速，需要 NVIDIA 显卡 |
 
-6. If the process is interrupted:
-   - press `Ctrl+C`
-   - rerun the same command later
-   - completed files are skipped automatically
+无 NVIDIA GPU 时，中/低画质选项自动置灰不可选。
 
-## Ten-machine deployment
+## 多机部署
 
-For 10 Windows PCs, the simplest setup is shard-based fan-out:
+适合多台 Windows 电脑并行处理同一批文件。
 
-1. Put the TS source folder on a shared location all PCs can read, or copy the same source folder to each machine.
-2. Give each machine its own output folder and its own SQLite DB.
-3. Assign shard indexes `0` through `9`.
+1. 将源视频放在共享路径（或每台机器本地各一份）
+2. 每台机器设置各自的输出文件夹
+3. 在 GUI 中勾选「启用分片」，设置本机编号（0 起）和总机器数
+4. 各自点击开始，互不干扰，各机有独立的 `progress.db`
 
-Example on machine 0:
+**示例（3 台机器）：**
+- 机器 0：本机编号=0，总机器数=3
+- 机器 1：本机编号=1，总机器数=3
+- 机器 2：本机编号=2，总机器数=3
 
-```bash
-python process_videos.py --input \\server\share\ts --output D:\out\mp4_0 --shard-index 0 --shard-count 10
-```
-
-Machine 1 uses `--shard-index 1`, and so on up to `9`.
-
-This keeps the deployment simple:
-
-- no shared database contention
-- no central scheduler required
-- easy to rerun a single machine
-- failed files stay isolated to that machine's DB
-
-## Notes
-
-- `--mode fast` defaults to `--limit 10` unless you override it.
-- Failed files are marked `failed` in SQLite and do not block the rest.
-- `--status` shows pending, done, and failed counts plus the failed file list.
-- The script looks for `ffmpeg` on `PATH` first, then in `./tools/ffmpeg`.
-- The subtitle crop is fixed at 100px from the bottom, which keeps a 3px safety margin above the confirmed subtitle band.
-- For a 10-machine batch, shard the source with `--shard-index` and `--shard-count` instead of sharing one SQLite DB across machines.
-
-## Packaging
-
-Build a portable Windows package:
+## 打包便携版
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build_portable.ps1
 ```
 
-The package is created at:
+输出：
+- `dist\VideoBatchProcessor\` — 便携目录
+- `release\VideoBatchProcessor-win-portable.zip` — 分发包
 
-- `dist\VideoBatchProcessor\`
-- `release\VideoBatchProcessor-win-portable.zip`
+解压后只需编辑 `config.json` 或直接通过 GUI 设置，无需安装 Python。
 
-The portable folder contains:
+## 配置文件 config.json
 
-- `VideoBatchProcessor.exe`
-- `config.json`
-- `tools\ffmpeg\`
-- `run.cmd`
+首次运行后自动生成，GUI 设置会自动保存。主要字段：
 
-For deployment, unzip the archive on each machine and edit `config.json` only.
+```json
+{
+  "input_dir": "D:/path/to/input",
+  "output_dir": "D:/path/to/output",
+  "input_ext": ".ts,.mp4,.mkv,.avi,.mov",
+  "workers": 4,
+  "encode_mode": "fast",
+  "shard_index": null,
+  "shard_count": null
+}
+```
+
+## 注意事项
+
+- ffmpeg 优先使用系统 PATH，其次使用 `tools/ffmpeg/` 内置版本
+- 失败的文件标记为 `failed`，不影响其他文件继续处理
+- 点击「查看状态」可随时查看已完成/失败数量
+
+3. 在 GUI 中勾选

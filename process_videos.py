@@ -28,7 +28,7 @@ import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from multiprocessing import Manager, Pool
+from multiprocessing import Pool, freeze_support
 from pathlib import Path
 
 
@@ -37,7 +37,7 @@ CONFIG = {
     "output_dir": "/path/to/output",
     "db_path": "",
 
-    "input_ext": ".ts",
+    "input_ext": ".ts,.mp4,.mkv,.avi,.mov",
 
     # Subtitle strip confirmed at Y=983~1029, with safe margin at Y=980.
     # Final filter chain: crop=1920:980:0:0,scale=1920:1080
@@ -251,22 +251,27 @@ def build_ffmpeg_cmd(input_path: str, output_path: str, cfg: dict) -> list[str]:
     vf = f"crop={sw}:{crop_h}:0:0,scale={ow}:{oh}"
 
     if cfg["encode_mode"] == "fast":
+        # 低画质：GPU 极速
         video_flags = [
-            "-c:v",
-            "h264_nvenc",
-            "-cq",
-            str(cfg["nvenc_cq"]),
-            "-preset",
-            cfg["nvenc_preset"],
+            "-c:v", "h264_nvenc",
+            "-cq", str(cfg["nvenc_cq"]),
+            "-preset", cfg["nvenc_preset"],
+        ]
+    elif cfg["encode_mode"] == "gpu_quality":
+        # 中画质：GPU 高质量
+        video_flags = [
+            "-c:v", "h264_nvenc",
+            "-cq", "18",
+            "-preset", "p7",
+            "-rc", "vbr",
+            "-bf", "4",
         ]
     else:
+        # 高画质：CPU libx264
         video_flags = [
-            "-c:v",
-            "libx264",
-            "-crf",
-            str(cfg["crf"]),
-            "-preset",
-            cfg["preset"],
+            "-c:v", "libx264",
+            "-crf", str(cfg["crf"]),
+            "-preset", cfg["preset"],
         ]
 
     return [
@@ -385,10 +390,13 @@ def run_batch(cfg: dict) -> None:
         cfg["output_height"],
     )
 
-    ext = cfg["input_ext"].lower()
-    all_files = sorted(input_dir.rglob(f"*{ext}"))
+    exts = [e.strip().lower() for e in cfg["input_ext"].split(",") if e.strip()]
+    all_files: list[Path] = []
+    for ext in exts:
+        all_files.extend(input_dir.rglob(f"*{ext}"))
+    all_files = sorted(set(all_files))
     if not all_files:
-        log.error("No %s files found under %s", ext, input_dir)
+        log.error("No files with extensions %s found under %s", cfg["input_ext"], input_dir)
         raise SystemExit(1)
     log.info("scanned %d files", len(all_files))
 
@@ -422,8 +430,8 @@ def run_batch(cfg: dict) -> None:
         t["db_path"] = db_path
         t["cfg"] = cfg
 
-    manager = Manager()
-    shutdown_flag = manager.Event()
+    import threading
+    shutdown_flag = threading.Event()
 
     def handle_signal(sig, frame):
         log.warning("received signal %s, will stop after current task", sig)
@@ -502,12 +510,13 @@ Usage examples:
     parser.add_argument("--workers", type=int, help="number of worker processes")
     parser.add_argument(
         "--mode",
-        choices=["quality", "fast"],
+        choices=["quality", "fast", "gpu_quality"],
         help="quality=libx264 CRF18 / fast=NVENC",
     )
     parser.add_argument("--limit", type=int, help="process only the first N pending files")
     parser.add_argument("--shard-index", type=int, help="0-based shard index for multi-machine splitting")
     parser.add_argument("--shard-count", type=int, help="total shard count for multi-machine splitting")
+    parser.add_argument("--ext", help="comma-separated input extensions, e.g. .ts,.mp4 (default from config)")
     parser.add_argument("--dry-run", action="store_true", help="register tasks only")
     parser.add_argument("--status", action="store_true", help="print progress summary and exit")
     args = parser.parse_args()
@@ -532,6 +541,8 @@ Usage examples:
         cfg["shard_count"] = args.shard_count
     if (cfg["shard_index"] is None) != (cfg["shard_count"] is None):
         raise SystemExit("--shard-index and --shard-count must be used together")
+    if hasattr(args, 'ext') and args.ext:
+        cfg["input_ext"] = args.ext
 
     if args.db:
         cfg["db_path"] = args.db
@@ -553,7 +564,11 @@ Usage examples:
         output_dir = Path(cfg["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
         init_db(cfg["db_path"])
-        all_files = sorted(input_dir.rglob(f"*{cfg['input_ext']}"))
+        exts = [e.strip().lower() for e in cfg["input_ext"].split(",") if e.strip()]
+        all_files: list[Path] = []
+        for ext in exts:
+            all_files.extend(input_dir.rglob(f"*{ext}"))
+        all_files = sorted(set(all_files))
         all_files = select_shard_files(all_files, cfg.get("shard_index"), cfg.get("shard_count"))
         n = register_files(cfg["db_path"], all_files, output_dir, input_dir)
         print(f"Dry-run: scanned {len(all_files)} files, registered {n} new tasks")
@@ -564,4 +579,5 @@ Usage examples:
 
 
 if __name__ == "__main__":
+    freeze_support()
     main()
