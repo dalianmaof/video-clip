@@ -7,13 +7,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "Installing PyInstaller if needed..."
-python -m pip install --upgrade pyinstaller --break-system-packages | Out-Null
+uv add --dev pyinstaller | Out-Null
 
 Write-Host "Cleaning old build artifacts..."
 Remove-Item -Recurse -Force $BuildDir, $DistDir -ErrorAction SilentlyContinue
 
 Write-Host "Building onedir package..."
-python -m PyInstaller `
+uv run python -m PyInstaller `
     --noconfirm `
     --clean `
     --onedir `
@@ -38,16 +38,16 @@ $configPath = Join-Path $appDir "config.json"
 if (-not (Test-Path $configPath)) {
     @'
 {
-  "input_dir": "D:/path/to/input",
-  "output_dir": "D:/path/to/output",
+  "input_dir": "",
+  "output_dir": "",
   "db_path": "",
-  "input_ext": ".ts",
+  "input_ext": ".ts,.mp4,.mkv,.avi,.mov",
   "crop_bottom_px": 100,
   "source_width": 1920,
   "source_height": 1080,
   "output_width": 1920,
   "output_height": 1080,
-  "encode_mode": "quality",
+  "encode_mode": "fast",
   "crf": 18,
   "preset": "slow",
   "nvenc_cq": 18,
