@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+venv/
+
+# PyInstaller
+*.spec
+
+# Project runtime output
+run_output/
+full_output/
+detect_output/
+test_output/
+shard_test/
+*.db
+
+# Release artifacts
+release/
+
+# FFmpeg binaries (too large for git)
+tools/ffmpeg/
+
+# Sample / test videos
+*.mp4
+*.ts
+*.mkv
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
