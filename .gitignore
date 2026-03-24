@@ -1,41 +1,43 @@
-# Python
-__pycache__/
-*.py[oc]
-build/
+# Node & Vite Web
+node_modules/
 dist/
-wheels/
-*.egg-info
-.venv/
-venv/
+dist-ssr/
+*.local
+.npm/
 
-# PyInstaller
-*.spec
+# Tauri
+src-tauri/target/
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.app
 
-# Project runtime output
+# Project Runtime Output
 run_output/
 full_output/
 detect_output/
 test_output/
 shard_test/
 *.db
+config.json
 
-# Release artifacts
+# Release & Media (video files, not TypeScript .ts)
 release/
-
-# FFmpeg binaries (too large for git)
 tools/ffmpeg/
-
-# Sample / test videos
 *.mp4
-*.ts
 *.mkv
+*.avi
+*.mov
+tauri-build.log
 
-# OS
+# OS & Editor
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# Editor
 .vscode/
 .idea/
+.claude/
 *.swp
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

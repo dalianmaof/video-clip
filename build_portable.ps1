@@ -1,81 +1,14 @@
 param(
-    [string]$BuildDir = "build",
-    [string]$DistDir = "dist",
     [string]$Name = "VideoBatchProcessor"
 )
 
 $ErrorActionPreference = "Stop"
+$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 
-Write-Host "Installing PyInstaller if needed..."
-uv add --dev pyinstaller | Out-Null
+Write-Host "Building Tauri app..."
+npm run tauri build
 
-Write-Host "Cleaning old build artifacts..."
-Remove-Item -Recurse -Force $BuildDir, $DistDir -ErrorAction SilentlyContinue
-
-Write-Host "Building onedir package..."
-uv run python -m PyInstaller `
-    --noconfirm `
-    --clean `
-    --onedir `
-    --windowed `
-    --workpath $BuildDir `
-    --distpath $DistDir `
-    --name $Name `
-    --add-data "process_videos.py;." `
-    gui.py
-
-$appDir = Join-Path $DistDir $Name
-$ffmpegExe = Get-ChildItem -Path (Join-Path $PWD "tools") -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-if (-not $ffmpegExe) {
-    throw "ffmpeg.exe not found under .\tools"
-}
-$ffmpegBin = Split-Path $ffmpegExe.FullName
-$toolsDst = Join-Path $appDir "tools\ffmpeg"
-New-Item -ItemType Directory -Force -Path $toolsDst | Out-Null
-Copy-Item -Recurse -Force (Join-Path $ffmpegBin "*") $toolsDst
-
-$configPath = Join-Path $appDir "config.json"
-if (-not (Test-Path $configPath)) {
-    @'
-{
-  "input_dir": "",
-  "output_dir": "",
-  "db_path": "",
-  "input_ext": ".ts,.mp4,.mkv,.avi,.mov",
-  "crop_bottom_px": 100,
-  "source_width": 1920,
-  "source_height": 1080,
-  "output_width": 1920,
-  "output_height": 1080,
-  "encode_mode": "fast",
-  "crf": 18,
-  "preset": "slow",
-  "nvenc_cq": 18,
-  "nvenc_preset": "p4",
-  "audio_flags": ["-c:a", "copy"],
-  "workers": 4,
-  "timeout_seconds": 7200,
-  "limit": null,
-  "shard_index": null,
-  "shard_count": null
-}
-'@ | Set-Content -Encoding UTF8 $configPath
-}
-
-@"
-@echo off
-setlocal
-cd /d %~dp0
-VideoBatchProcessor.exe %*
-"@ | Set-Content -Encoding ASCII (Join-Path $appDir "run.cmd")
-
-$releaseDir = Join-Path $PWD "release"
-New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-$zipPath = Join-Path $releaseDir "$Name-win-portable.zip"
-if (Test-Path $zipPath) {
-    Remove-Item -Force $zipPath
-}
-Compress-Archive -Path $appDir -DestinationPath $zipPath
-
-Write-Host "Package ready at $appDir"
-Write-Host "ZIP created at $zipPath"
+Write-Host ""
+Write-Host "Build complete. Artifacts:"
+Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -Include "*.msi","*.exe","*.zip" |`
+    Select-Object FullName, @{N='Size(MB)';E={[math]::Round($_.Length/1MB,1)}}

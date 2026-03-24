@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capability for video batch processor","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","fs:allow-read-file","fs:allow-write-file","fs:allow-exists","fs:allow-app-read-recursive","fs:allow-app-write-recursive","process:allow-exit"]}}
