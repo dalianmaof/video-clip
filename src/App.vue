@@ -1,17 +1,14 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
+import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { resolveResource, appConfigDir } from '@tauri-apps/api/path'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
@@ -23,7 +20,6 @@ interface AppConfig {
   shard_index: number | null; shard_count: number | null
   theme?: 'light' | 'dark'
 }
-interface Stats { pending: number; done: number; failed: number }
 interface StatusResult {
   pending: number; processing: number; done: number; failed: number
   total_done_seconds: number
@@ -59,13 +55,14 @@ const isRunning = ref(false)
 const statusText = ref('就绪')
 const logLines = ref<string[]>([])
 const logEl = ref<HTMLElement | null>(null)
-const stats = reactive<Stats>({ pending: 0, done: 0, failed: 0 })
+const stats = reactive({ done: 0, failed: 0 })
 const totalFiles = ref(0)
 const currentFileName = ref('')
 const currentFileDuration = ref(0)
 const elapsedSeconds = ref(0)
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 let startTimestamp = 0
+let isMounted = true
 const unlisteners: UnlistenFn[] = []
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -85,9 +82,7 @@ async function getConfigPath(): Promise<string> {
 }
 async function loadConfig() {
   try {
-    const path = await getConfigPath()
-    if (!await exists(path)) return
-    const cfg: Partial<AppConfig> = JSON.parse(await readTextFile(path))
+    const cfg: Partial<AppConfig> = JSON.parse(await readTextFile(await getConfigPath()))
     if (cfg.input_dir) inputDir.value = cfg.input_dir
     if (cfg.output_dir) outputDir.value = cfg.output_dir
     if (cfg.input_ext) inputExt.value = cfg.input_ext
@@ -120,22 +115,28 @@ async function detectNvenc() {
 }
 
 // ── Folder picker ──────────────────────────────────────────────────────────
-async function pickInput() { const s = await open({ directory: true, multiple: false }); if (typeof s === 'string') inputDir.value = s }
-async function pickOutput() { const s = await open({ directory: true, multiple: false }); if (typeof s === 'string') outputDir.value = s }
+async function pickDir(target: Ref<string>) {
+  const s = await open({ directory: true, multiple: false })
+  if (typeof s === 'string') target.value = s
+}
+const pickInput = () => pickDir(inputDir)
+const pickOutput = () => pickDir(outputDir)
 
 // ── Log ────────────────────────────────────────────────────────────────────
 function appendLog(line: string) {
   logLines.value.push(line)
-  if (logLines.value.length > 5000) logLines.value.shift()
+  if (logLines.value.length > 5500) logLines.value = logLines.value.slice(500)
   nextTick(() => { if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight })
 }
 
 // ── Progress ───────────────────────────────────────────────────────────────
+const pending = computed(() => Math.max(0, totalFiles.value - stats.done - stats.failed))
 const progressPct = computed(() => totalFiles.value ? Math.round((stats.done + stats.failed) / totalFiles.value * 100) : 0)
 
 const animatedPct = ref(0)
 let animFrame: number | null = null
 function tickAnimation() {
+  if (!isMounted) { animFrame = null; return }
   const diff = progressPct.value - animatedPct.value
   if (Math.abs(diff) < 0.5) { animatedPct.value = progressPct.value; animFrame = null; return }
   animatedPct.value += diff * 0.12
@@ -151,14 +152,14 @@ const eta = computed(() => {
 })
 const elapsedDisplay = computed(() => formatDuration(elapsedSeconds.value))
 
-function startTimer() { startTimestamp = Date.now(); elapsedTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - startTimestamp) / 1000) }, 1000) }
+function startTimer() { stopTimer(); startTimestamp = Date.now(); elapsedTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - startTimestamp) / 1000) }, 1000) }
 function stopTimer() { if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null } }
 
 // ── Actions ────────────────────────────────────────────────────────────────
 async function onStart() {
   if (!inputDir.value || !outputDir.value) { appendLog('[错误] 请先选择输入和输出文件夹'); return }
   await saveConfig()
-  logLines.value = []; stats.pending = 0; stats.done = 0; stats.failed = 0
+  logLines.value = []; stats.done = 0; stats.failed = 0
   totalFiles.value = 0; currentFileName.value = ''; elapsedSeconds.value = 0; animatedPct.value = 0
   isRunning.value = true; statusText.value = '处理中'; startTimer()
   try {
@@ -185,9 +186,8 @@ async function setupListeners() {
   unlisteners.push(await listen<{ message: string }>('batch:log', e => appendLog(e.payload.message)))
   unlisteners.push(await listen<ProgressPayload>('batch:progress', e => {
     const { total, status, file_name, duration_s, elapsed_s } = e.payload
-    totalFiles.value = total
+    if (totalFiles.value !== total) totalFiles.value = total
     if (status === 'done') stats.done++; else if (status === 'failed') stats.failed++
-    stats.pending = Math.max(0, total - (stats.done + stats.failed))
     if (file_name) { currentFileName.value = file_name; currentFileDuration.value = duration_s }
     if (elapsed_s > 0) elapsedSeconds.value = Math.floor(elapsed_s)
   }))
@@ -202,7 +202,7 @@ async function setupListeners() {
 }
 
 onMounted(async () => { await setupListeners(); await loadConfig(); await detectNvenc() })
-onUnmounted(() => { stopTimer(); if (animFrame) cancelAnimationFrame(animFrame); for (const u of unlisteners) u() })
+onUnmounted(() => { isMounted = false; stopTimer(); if (animFrame) cancelAnimationFrame(animFrame); for (const u of unlisteners) u() })
 </script>
 
 <template>
@@ -319,7 +319,7 @@ onUnmounted(() => { stopTimer(); if (animFrame) cancelAnimationFrame(animFrame);
             <div class="flex items-center gap-3 shrink-0">
               <span class="text-success tabular-nums">{{ stats.done }} 完成</span>
               <span :class="stats.failed > 0 ? 'text-destructive' : 'text-muted-foreground/50'" class="tabular-nums">{{ stats.failed }} 失败</span>
-              <span class="text-muted-foreground/60 tabular-nums">{{ stats.pending }} 等待</span>
+              <span class="text-muted-foreground/60 tabular-nums">{{ pending }} 等待</span>
             </div>
           </div>
         </div>
