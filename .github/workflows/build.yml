@@ -61,13 +61,13 @@ jobs:
           $ffmpegDir = $binDir.DirectoryName
 
           # Place ffmpeg where the Rust code can find it via resource bundling
-          New-Item -ItemType Directory -Force -Path "tools/ffmpeg/bin"
-          Copy-Item "$ffmpegDir/ffmpeg.exe"  "tools/ffmpeg/bin/"
-          Copy-Item "$ffmpegDir/ffprobe.exe" "tools/ffmpeg/bin/"
+          New-Item -ItemType Directory -Force -Path "tools/ffmpeg"
+          Copy-Item "$ffmpegDir/ffmpeg.exe"  "tools/ffmpeg/"
+          Copy-Item "$ffmpegDir/ffprobe.exe" "tools/ffmpeg/"
 
           Remove-Item -Recurse ffmpeg-tmp, $zip -Force
-          Write-Host "ffmpeg installed at tools/ffmpeg/bin/"
-          & "tools/ffmpeg/bin/ffmpeg.exe" -version | Select-Object -First 1
+          Write-Host "ffmpeg installed at tools/ffmpeg/"
+          & "tools/ffmpeg/ffmpeg.exe" -version | Select-Object -First 1
 
       - name: Build Tauri app
         run: npm run tauri build
